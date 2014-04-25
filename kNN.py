@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from math import floor
 from operator import itemgetter
+from os import listdir
 
 
 def create_data_set():
@@ -18,7 +20,7 @@ def classify0(x, samples, labels, k):
     distances = np.sum((np.tile(x, (sample_size, 1)) - samples) ** 2, axis=1) ** 0.5
     inc_index = np.argsort(distances)
 
-    # get he neighber's votes
+    # get he neighbour's votes
     votes = {}
     for i in range(k):
         vote_label = labels[inc_index[i]]
@@ -51,6 +53,79 @@ def normalize(data):
     max_values = np.max(data, axis=0)
     ranges = max_values - min_values
     return (data - min_values) / ranges, ranges, min_values
+
+
+def dating_classify_test(filename='data/Ch02/datingTestSet.txt', k=3, ratio=0.1):
+    samples, labels = file2matrix(filename)
+    samples, _, _ = normalize(samples)
+    test_num = floor(samples.shape[0] * ratio)
+    error_num = 0
+    trains = samples[test_num:, :]
+    train_labels = labels[test_num:]
+    for i in range(test_num):
+        predict = classify0(samples[i, :], trains, train_labels, k)
+        if predict != labels[i]:
+            error_num += 1
+
+    return error_num / test_num
+
+def classify_person(filename='data/Ch02/datingTestSet2.txt', k = 3):
+    results = ['', 'not at all', 'in small doses', 'in large doses']
+    trains, train_labels = file2matrix(filename)
+    trains, ranges, min_values = normalize(trains)
+    gaming = float(input('Percent of time spent on video games: '))
+    ffmiles = float(input('ff miles earned per year: '))
+    ice_cream = float(input('liters of ice creams consumed per year: '))
+    x = (np.array([ffmiles, gaming, ice_cream]) - min_values) / ranges
+    predict = results[int(classify0(x, trains, train_labels, k))]
+    print('you will probably like the person:', predict)
+
+
+def image2vector(filename):
+    vec = np.zeros(1024)
+    idx = 0
+    with open(filename, 'r') as f:
+        for line in f:
+            vec[idx:idx+32] = list(line[:-1])
+            idx += 32
+
+    return vec
+
+
+def handwriting_classify_test(train='data/Ch02/digits/trainingDigits',
+                              test='data/Ch02/digits/testDigits',
+                              k=3):
+    train_files = listdir(train)
+    test_files = listdir(test)
+    train_size = len(train_files)
+    test_size = len(test_files)
+    test_errors = 0
+
+    # construct the train set and labels
+    train_set = np.zeros((train_size, 1024))
+    train_labels = np.zeros(train_size, dtype=int)
+    idx = 0
+    for file in train_files:
+        train_labels[idx] = int(file.split('_')[0])
+        train_set[idx, :] = image2vector(train + '/' + file)
+        idx += 1
+
+    # construct the test set and labels
+    test_set = np.zeros((test_size, 1024))
+    test_labels = np.zeros(test_size, dtype=int)
+    idx = 0
+    for file in test_files:
+        test_labels[idx] = int(file.split('_')[0])
+        test_set[idx, :] = image2vector(test + '/' + file)
+        idx += 1
+
+    # test the classifier
+    for idx in range(test_size):
+        predict = classify0(test_set[idx, :], train_set, train_labels, k)
+        if predict != test_labels[idx]:
+            test_errors += 1
+
+    return test_errors / test_size
 
 
 def run_classify(filename):
@@ -90,4 +165,5 @@ if __name__ == '__main__':
         ut.main()
 
     else:
-        run_classify(argv[1])
+        print('dating person error rate:', dating_classify_test())
+        print('handwriting digits error rate:', handwriting_classify_test())
