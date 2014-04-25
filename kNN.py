@@ -42,6 +42,17 @@ def file2matrix(filename):
         return samples, labels
 
 
+def normalize(data):
+    """Normalize the values in date into range [0, 1].
+
+     new_value = (old_value - min) / (max - min)
+    """
+    min_values = np.min(data, axis=0)
+    max_values = np.max(data, axis=0)
+    ranges = max_values - min_values
+    return (data - min_values) / ranges, ranges, min_values
+
+
 def run_classify(filename):
     pass
 
@@ -68,6 +79,13 @@ if __name__ == '__main__':
                 self.assertEqual((3,), labels.shape)
                 self.assertTrue(np.all(samples == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]))
                 self.assertTrue(np.all(labels == ['11', '12', '13']))
+
+            def test_normalize(self):
+                samples = np.arange(11)
+                norm_samples, ranges, min_values = normalize(samples)
+                self.assertTrue(np.all(norm_samples - np.arange(0.0, 1.01, 0.1) < 0.00001))
+                self.assertEqual(10, ranges)
+                self.assertEqual(0, min_values)
 
         ut.main()
 
