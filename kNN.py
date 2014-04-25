@@ -28,17 +28,48 @@ def classify0(x, samples, labels, k):
     return sorted_votes[0][0]
 
 
+def file2matrix(filename):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+        num = len(lines)
+        samples = np.zeros((num, 3))
+        labels = np.array(['<unknown>'] * num)
+        for idx, line in enumerate(lines):
+            elements = line.strip().split('\t')
+            samples[idx, :] = elements[:-1]
+            labels[idx] = elements[-1]
+
+        return samples, labels
+
+
+def run_classify(filename):
+    pass
+
+
 if __name__ == '__main__':
-    # run simple test
-    import unittest as ut
+    from sys import argv
+    if len(argv) == 1:
+        # run simple test
+        import unittest as ut
 
-    class Test(ut.TestCase):
-        def setUp(self):
-            self.samples, self.labels = create_data_set()
+        class Test(ut.TestCase):
+            def setUp(self):
+                self.samples, self.labels = create_data_set()
+                self.testfile = './kNN_testdata'
 
-        def test_classify0(self):
-            k = 2
-            self.assertEqual('A', classify0([0.1, 0.2], self.samples, self.labels, k))
-            self.assertEqual('B', classify0([1.2, 0.9], self.samples, self.labels, k))
+            def test_classify0(self):
+                k = 2
+                self.assertEqual('A', classify0([0.1, 0.2], self.samples, self.labels, k))
+                self.assertEqual('B', classify0([1.2, 0.9], self.samples, self.labels, k))
 
-    ut.main()
+            def test_file2matrix(self):
+                samples, labels = file2matrix(self.testfile)
+                self.assertEqual((3, 3), samples.shape)
+                self.assertEqual((3,), labels.shape)
+                self.assertTrue(np.all(samples == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]))
+                self.assertTrue(np.all(labels == ['11', '12', '13']))
+
+        ut.main()
+
+    else:
+        run_classify(argv[1])
