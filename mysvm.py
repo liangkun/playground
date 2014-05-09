@@ -34,15 +34,22 @@ def clip_value(a, low, high):
     return a
 
 
-def plot_data(data, labels, svmask=None):
+def plot_line(w, b, min_x0, max_x0):
+    min_x1 = (-(w[0] * min_x0 + b) / w[1])[0, 0]
+    max_x1 = (-(w[0] * max_x0 + b) / w[1])[0, 0]
+
+    pp.plot([min_x0, max_x0], [min_x1, max_x1], 'k-')
+
+
+def plot_data(data, labels, os=None):
     pos = data[labels == 1]
     neg = data[labels == -1]
 
-    pp.scatter(pos[:, 0], pos[:, 1], marker='x', c='r', s=15)
-    pp.scatter(neg[:, 0], neg[:, 1], marker='o', c='g', s=15)
-    if svmask is not None:
-        svs = data[svmask]
-        pp.scatter(svs[:, 0], svs[:, 1], marker='s', c='k', s=60)
+    pp.scatter(pos[:, 0], pos[:, 1], marker='x', c='r')
+    pp.scatter(neg[:, 0], neg[:, 1], marker='o', c='c', linewidths=0)
+    if os is not None:
+        pp.scatter(os.svxs[:, 0].A.flatten(), os.svxs[:, 1].A.flatten(), marker='s', c='k')
+        plot_line(os.w, os.b, np.min(data, axis=0)[0] + 2, np.max(data, axis=0)[0] - 2)
     pp.show()
 
 
@@ -286,7 +293,7 @@ def svm_classify(os, x):
 if __name__ == '__main__':
     data, labels = load_data_set('data/Ch06/testSet.txt')
     os = smo(data, labels)
-    plot_data(data, labels, (os.alphas > 0).A[:, 0])
+    plot_data(data, labels, os)
 
     print("Slow w:", calc_w_slow(os))
     print("Fast w:", os.w)
