@@ -3,9 +3,7 @@
 import random
 import numpy as np
 import matplotlib.pyplot as pp
-import math
 
-testfile = 'data/Ch06/testSet.txt'
 
 def load_data_set(fname):
     data = []
@@ -35,15 +33,48 @@ def clip_value(a, low, high):
     return a
 
 
-def plot_data(data, labels, svmask=None):
+def plot_line(w, b, min_x0, max_x0):
+    min_x1 = (-(w[0] * min_x0 + b) / w[1])[0, 0]
+    max_x1 = (-(w[0] * max_x0 + b) / w[1])[0, 0]
+
+    pp.plot([min_x0, max_x0], [min_x1, max_x1], 'k-')
+
+
+def plot_boundry(os):
+    min_x0 = np.min(os.xs, axis=0)[0, 0]
+    max_x0 = np.max(os.xs, axis=0)[0, 0]
+    min_x1 = np.min(os.xs, axis=0)[0, 1]
+    max_x1 = np.max(os.xs, axis=0)[0, 1]
+
+    x0s = np.arange(min_x0, max_x0, (max_x0 - min_x0) / 200)
+    x1s = np.arange(min_x1, max_x1, (max_x1 - min_x1) / 200)
+
+    x0_grid, x1_grid = np.meshgrid(x0s, x1s)
+    m, n = x0_grid.shape
+    h_grid = np.zeros((m, n))
+    for i in range(m):
+        for j in range(n):
+            h_grid[i, j] = svm_classify(os, [x0_grid[i, j], x1_grid[i, j]])
+
+    pp.contourf(x0_grid, x1_grid, h_grid, alpha=0.2)
+
+
+def plot_data(data, labels, os=None):
     pos = data[labels == 1]
     neg = data[labels == -1]
 
-    pp.scatter(pos[:, 0], pos[:, 1], marker='x', c='r', s=15)
-    pp.scatter(neg[:, 0], neg[:, 1], marker='o', c='g', s=15)
-    if svmask is not None:
-        svs = data[svmask]
-        pp.scatter(svs[:, 0], svs[:, 1], marker='s', c='k', s=60)
+    pp.scatter(pos[:, 0], pos[:, 1], marker='x', c='r')
+    pp.scatter(neg[:, 0], neg[:, 1], marker='o', c='c', linewidths=0)
+    if os is not None:
+        pp.scatter(os.svxs.A[os.svys.A.flatten() == 1][:, 0].flatten(),
+                   os.svxs.A[os.svys.A.flatten() == 1][:, 1].flatten(), marker='s', c='r')
+        pp.scatter(os.svxs.A[os.svys.A.flatten() == -1][:, 0].flatten(),
+                   os.svxs.A[os.svys.A.flatten() == -1][:, 1].flatten(), marker='s', c='c')
+        if os.kernel == linear_kernel:
+            plot_line(calc_w_linear_kernel(os), os.b,
+                      np.min(data, axis=0)[0] + 2, np.max(data, axis=0)[0] - 2)
+        else:
+            plot_boundry(os)
     pp.show()
 
 
@@ -53,7 +84,7 @@ def linear_kernel(x1, x2):
     return x1 * x2
 
 
-def create_gaussian(sigma):
+def create_gaussian(sigma=1):
     def guassian(x1, x2):
         """ Input should be two numpy matrix.
         """
@@ -93,7 +124,7 @@ def simple_smo(data, labels, c=0.6, epsilon=0.001, max_iter=40, kernel=linear_ke
                     high = min(c, alphas[j] + alphas[i])
 
                 if low == high:
-                    print('DEBUG: low == high, skip this pair')
+                    #print('DEBUG: low == high, skip this pair')
                     continue
 
                 eta = 2 * kernel(xs[i, :], xs[j, :].T) - \
@@ -101,13 +132,13 @@ def simple_smo(data, labels, c=0.6, epsilon=0.001, max_iter=40, kernel=linear_ke
                     kernel(xs[j, :], xs[j, :].T)
 
                 if eta >= 0:
-                    print('DEBUG: eta >= 0, skip this pair')
+                    #print('DEBUG: eta >= 0, skip this pair')
                     continue
 
                 alphas[j] -= ys[j] * (ei - ej) / eta
                 alphas[j] = clip_value(alphas[j], low, high)
                 if abs(alpha_j_old - alphas[j]) < 0.00001:
-                    print('DEBUG: j not moving enough, skip')
+                    #print('DEBUG: j not moving enough, skip')
                     continue
                 alphas[i] += ys[j] * ys[i] * (alpha_j_old - alphas[j])
 
@@ -193,19 +224,19 @@ def inner_loop(os, i):
             low = max(0, os.alphas[j] + os.alphas[i] - os.c)
             high = min(os.c, os.alphas[j] + os.alphas[i])
         if low == high:
-            print('DEBUG: low == high, skip this pair')
+            #print('DEBUG: low == high, skip this pair')
             return 0
         eta = 2 * os.kernel(os.xs[i, :], os.xs[j, :].T) - \
               os.kernel(os.xs[i, :], os.xs[i, :].T) - \
               os.kernel(os.xs[j, :], os.xs[j, :].T)
         if eta >=0:
-            print('DEBUG: eta >=0, skip this pair')
+            #print('DEBUG: eta >=0, skip this pair')
             return 0
         os.alphas[j] -= os.ys[j] * (ei - ej) / eta
         os.alphas[j] = clip_value(os.alphas[j], low, high)
         update_ek(os, j)
         if abs(os.alphas[j] - alpha_j_old) < 0.00001:
-            print('DEBUG: j not moving enough, skip')
+            #print('DEBUG: j not moving enough, skip')
             return 0
         os.alphas[i] += os.ys[j] * os.ys[i] * (alpha_j_old - os.alphas[j])
         update_ek(os, i)
@@ -254,42 +285,52 @@ def smo(data, labels, c=1, epsilon=0.01, max_iter=5000, kernel=linear_kernel):
     os.svxs = os.xs[msk]
     os.svys = os.ys[msk]
     os.svas = os.alphas[msk]
-    os.w = calc_w(os)
     return os
 
 
-def calc_w_slow(os):
-    """ Only for test.
-    """
-    m, n = os.xs.shape
-    w = np.zeros((n, 1))
-    for i in range(m):
-        w += np.multiply(os.alphas[i] * os.ys[i], os.xs[i, :].T)
-    return w
-
-
-def calc_w(os):
+def calc_w_linear_kernel(os):
     m, n = os.svxs.shape
     w = np.zeros((n, 1))
     for i in range(m):
-        w += np.multiply(os.svas[i] * os.svys[i], os.svxs[i, :].T)
+        w += os.svas[i, 0] * os.svys[i, 0] * os.svxs[i, :].T
     return w
 
 
 def svm_classify(os, x):
-    f_x = os.w.T.dot(x) + os.b
+    kernal_value = os.kernel(os.svxs, np.mat(x).T)
+    f_x = kernal_value.T * np.multiply(os.svys, os.svas) + os.b
     if f_x >= 0:
-        return 1
+        return 1.0
     else:
-        return -1
+        return -1.0
+
+
+def get_error_rate(os, test_xs, test_ys):
+    test_count = test_xs.shape[0]
+    test_error = 0
+    for i in range(test_count):
+        if test_ys[i] != svm_classify(os, test_xs[i, :]):
+            test_error += 1
+
+    return test_error / test_count
+
+def test_rbf(sigma):
+    train = 'data/Ch06/testSetRBF.txt'
+    test = 'data/Ch06/testSetRBF2.txt'
+
+    train_xs, train_ys = load_data_set(train)
+    os = smo(train_xs, train_ys, c=200, epsilon=0.0001, max_iter=10000, kernel=create_gaussian(sigma))
+    plot_data(train_xs, train_ys, os)
+
+    test_xs, test_ys = load_data_set(test)
+    print('SVM rbf error rate on train set: %{}'.format(get_error_rate(os, train_xs, train_ys) * 100))
+    print('SVM rbf error rate on test set: %{}'.format(get_error_rate(os, test_xs, test_ys) * 100))
 
 
 if __name__ == '__main__':
     data, labels = load_data_set('data/Ch06/testSet.txt')
     os = smo(data, labels)
-    plot_data(data, labels, (os.alphas > 0).A[:, 0])
+    plot_data(data, labels, os)
 
-    print("Slow w:", calc_w_slow(os))
-    print("Fast w:", os.w)
+    test_rbf(1.3)
 
-    print(svm_classify(os, [10,-2]))
