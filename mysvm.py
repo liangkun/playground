@@ -3,6 +3,9 @@
 import random
 import numpy as np
 import matplotlib.pyplot as pp
+from os import listdir
+from concurrent.futures import ProcessPoolExecutor, Future
+from grogress import begin_progress, progress, end_progress
 
 
 def load_data_set(fname):
@@ -40,11 +43,11 @@ def plot_line(w, b, min_x0, max_x0):
     pp.plot([min_x0, max_x0], [min_x1, max_x1], 'k-')
 
 
-def plot_boundry(os):
-    min_x0 = np.min(os.xs, axis=0)[0, 0]
-    max_x0 = np.max(os.xs, axis=0)[0, 0]
-    min_x1 = np.min(os.xs, axis=0)[0, 1]
-    max_x1 = np.max(os.xs, axis=0)[0, 1]
+def plot_boundry(data, os):
+    min_x0 = np.min(data, axis=0)[0]
+    max_x0 = np.max(data, axis=0)[0]
+    min_x1 = np.min(data, axis=0)[1]
+    max_x1 = np.max(data, axis=0)[1]
 
     x0s = np.arange(min_x0, max_x0, (max_x0 - min_x0) / 200)
     x1s = np.arange(min_x1, max_x1, (max_x1 - min_x1) / 200)
@@ -60,6 +63,9 @@ def plot_boundry(os):
 
 
 def plot_data(data, labels, os=None):
+    if data.shape[1] > 2:
+        return
+
     pos = data[labels == 1]
     neg = data[labels == -1]
 
@@ -74,7 +80,7 @@ def plot_data(data, labels, os=None):
             plot_line(calc_w_linear_kernel(os), os.b,
                       np.min(data, axis=0)[0] + 2, np.max(data, axis=0)[0] - 2)
         else:
-            plot_boundry(os)
+            plot_boundry(data, os)
     pp.show()
 
 
@@ -82,6 +88,16 @@ def linear_kernel(x1, x2):
     """ Input must be two numpy matrix.
     """
     return x1 * x2
+
+
+class Gaussian:
+    def __init__(self, sigma=1):
+        self.sigma = 1
+
+    def __call__(self, *args, **kwargs):
+        x1 = args[0]
+        x2 = args[1]
+        return np.mat(np.exp(-np.sum((x1 - x2.T).A ** 2, axis=1) / (2 * self.sigma**2))).T
 
 
 def create_gaussian(sigma=1):
@@ -163,8 +179,19 @@ def simple_smo(data, labels, c=0.6, epsilon=0.001, max_iter=40, kernel=linear_ke
     return b, alphas
 
 
+def create_k_cache(data, kernel):
+    xs = np.mat(data)
+    m = xs.shape[0]
+    k_cache = np.mat(np.zeros((m, m)))
+    for i in range(m):
+        for j in range(m):
+            k_cache[i, j] = kernel(xs[i, :], xs[j, :].T)[0, 0]
+
+    return k_cache
+
+
 class opt_struct:
-    def __init__(self, data, labels, c=0.6, epsilon=0.001, kernel=linear_kernel):
+    def __init__(self, data, labels, c=0.6, epsilon=0.001, kernel=linear_kernel, k_cache=None):
         self.xs = data
         self.ys = labels
         self.c = c
@@ -175,9 +202,23 @@ class opt_struct:
         self.b = 0
         self.e_cache = np.mat(np.zeros((self.m, 2)))
 
+        if k_cache is None:
+            self.k_cache = create_k_cache(self.xs, self.kernel)
+        else:
+            assert(len(k_cache) == self.m)
+            self.k_cache = k_cache
+
+    def compack(self):
+        self.xs = None
+        self.ys = None
+        self.m = None
+        self.alphas = None
+        self.e_cache = None
+        self.k_cache = None
+
 
 def calc_ek(os, k):
-    f_xk = np.multiply(os.alphas, os.ys).T * os.kernel(os.xs, os.xs[k, :].T) + os.b
+    f_xk = np.multiply(os.alphas, os.ys).T * os.k_cache[:, k] + os.b
     return f_xk - os.ys[k]
 
 
@@ -215,8 +256,8 @@ def inner_loop(os, i):
     if (os.ys[i] * ei < -os.epsilon and os.alphas[i] < os.c) or \
             (os.ys[i] * ei > os.epsilon and os.alphas[i] > 0):
         j, ej = select_j(os, i, ei)
-        alpha_i_old = os.alphas[i].copy()
-        alpha_j_old = os.alphas[j].copy()
+        alpha_i_old = os.alphas[i, 0]
+        alpha_j_old = os.alphas[j, 0]
         if os.ys[i] != os.ys[j]:
             low = max(0, os.alphas[j] - os.alphas[i])
             high = min(os.c, os.c + os.alphas[j] - os.alphas[i])
@@ -226,9 +267,7 @@ def inner_loop(os, i):
         if low == high:
             #print('DEBUG: low == high, skip this pair')
             return 0
-        eta = 2 * os.kernel(os.xs[i, :], os.xs[j, :].T) - \
-              os.kernel(os.xs[i, :], os.xs[i, :].T) - \
-              os.kernel(os.xs[j, :], os.xs[j, :].T)
+        eta = 2 * os.k_cache[i, j] - os.k_cache[i, i] - os.k_cache[j, j]
         if eta >=0:
             #print('DEBUG: eta >=0, skip this pair')
             return 0
@@ -240,14 +279,10 @@ def inner_loop(os, i):
             return 0
         os.alphas[i] += os.ys[j] * os.ys[i] * (alpha_j_old - os.alphas[j])
         update_ek(os, i)
-        b1 = os.b - ei - os.ys[i] * (os.alphas[i] - alpha_i_old) * \
-                         os.kernel(os.xs[i, :], os.xs[i, :].T) - \
-                         os.ys[j] * (os.alphas[j] - alpha_j_old) * \
-                         os.kernel(os.xs[i, :], os.xs[j, :].T)
-        b2 = os.b - ej - os.ys[i] * (os.alphas[i] - alpha_i_old) * \
-                         os.kernel(os.xs[i, :], os.xs[j, :].T) - \
-                         os.ys[j] * (os.alphas[j] - alpha_j_old) * \
-                         os.kernel(os.xs[j, :], os.xs[j, :].T)
+        b1 = os.b - ei - os.ys[i] * (os.alphas[i] - alpha_i_old) * os.k_cache[i, i] - \
+                         os.ys[j] * (os.alphas[j] - alpha_j_old) * os.k_cache[i, j]
+        b2 = os.b - ej - os.ys[i] * (os.alphas[i] - alpha_i_old) * os.k_cache[i, j] - \
+                         os.ys[j] * (os.alphas[j] - alpha_j_old) * os.k_cache[j, j]
         if 0 < os.alphas[i] < os.c:
             os.b = b1
         elif 0 < os.alphas[j] < os.c:
@@ -259,8 +294,8 @@ def inner_loop(os, i):
     return 0
 
 
-def smo(data, labels, c=1, epsilon=0.01, max_iter=5000, kernel=linear_kernel):
-    os = opt_struct(np.mat(data), np.mat(labels).T, c, epsilon, kernel)
+def smo(data, labels, c=1, epsilon=0.01, max_iter=5000, kernel=linear_kernel, k_cache=None):
+    os = opt_struct(np.mat(data), np.mat(labels).T, c, epsilon, kernel, k_cache)
     iter = 0
     full_set = True
     alphas_changed = 0
@@ -285,6 +320,7 @@ def smo(data, labels, c=1, epsilon=0.01, max_iter=5000, kernel=linear_kernel):
     os.svxs = os.xs[msk]
     os.svys = os.ys[msk]
     os.svas = os.alphas[msk]
+    os.compack()
     return os
 
 
@@ -297,12 +333,16 @@ def calc_w_linear_kernel(os):
 
 
 def svm_classify(os, x):
-    kernal_value = os.kernel(os.svxs, np.mat(x).T)
-    f_x = kernal_value.T * np.multiply(os.svys, os.svas) + os.b
-    if f_x >= 0:
+    if svm_predict(os, x) >= 0:
         return 1.0
     else:
         return -1.0
+
+
+def svm_predict(os, x):
+    kernal_value = os.kernel(os.svxs, np.mat(x).T)
+    f_x = kernal_value.T * np.multiply(os.svys, os.svas) + os.b
+    return f_x
 
 
 def get_error_rate(os, test_xs, test_ys):
@@ -314,12 +354,13 @@ def get_error_rate(os, test_xs, test_ys):
 
     return test_error / test_count
 
+
 def test_rbf(sigma):
     train = 'data/Ch06/testSetRBF.txt'
     test = 'data/Ch06/testSetRBF2.txt'
 
     train_xs, train_ys = load_data_set(train)
-    os = smo(train_xs, train_ys, c=200, epsilon=0.0001, max_iter=10000, kernel=create_gaussian(sigma))
+    os = smo(train_xs, train_ys, c=200, epsilon=0.0001, max_iter=10000, kernel=Gaussian(sigma))
     plot_data(train_xs, train_ys, os)
 
     test_xs, test_ys = load_data_set(test)
@@ -327,10 +368,100 @@ def test_rbf(sigma):
     print('SVM rbf error rate on test set: %{}'.format(get_error_rate(os, test_xs, test_ys) * 100))
 
 
-if __name__ == '__main__':
-    data, labels = load_data_set('data/Ch06/testSet.txt')
-    os = smo(data, labels)
-    plot_data(data, labels, os)
+def image2vector(fname):
+    vec = []
+    with open(fname, 'r') as f:
+        for line in f:
+            vec.extend([float(x) for x in line[:-1]])
 
-    test_rbf(1.3)
+    return vec
+
+
+def load_digits(dirname):
+    fnames = listdir(dirname)
+    data = []
+    labels = []
+    for fname in fnames:
+        labels.append(float(fname.split('_')[0]))
+        data.append(image2vector(dirname + '/' + fname))
+        progress()
+
+    return np.array(data), np.array(labels)
+
+
+def svm_multi_classify(oss, x):
+    max_predict = 0
+    max_class = -1
+
+    for i, os in enumerate(oss):
+        predict = svm_predict(os, x)
+        if predict > max_predict:
+            max_predict = predict
+            max_class = i
+
+    return max_class
+
+
+def multi_get_error_rate(oss, test_xs, test_ys):
+    test_count = test_xs.shape[0]
+    test_error = 0
+    for i in range(test_count):
+        if test_ys[i] != float(svm_multi_classify(oss, test_xs[i, :])):
+            test_error += 1
+
+    return test_error / test_count
+
+
+def train_svm(i, xs, ys, c, epsilon, max_iter, kernel, k_cache=None):
+    ys_i = ys.copy()
+    ys_i[ys == i] = 1
+    ys_i[ys != i] = -1
+    return i, smo(xs, ys_i, c, epsilon, max_iter, kernel, k_cache=k_cache)
+
+
+def test_hand_written(c=200, epsilon=0.0001, max_iter=100, kernel=linear_kernel):
+    begin_progress('Reading train data')
+    train_xs, train_ys = load_digits('data/Ch02/digits/trainingDigits')
+    end_progress()
+
+    begin_progress('Train svms')
+    svms = [None] * 10
+    #k_cache = create_k_cache(train_xs, kernel)
+    #for i in range(10):
+    #    os = train_svm(i, train_xs, train_ys, c, epsilon, max_iter, kernel, k_cache)
+    #    svms.append(os)
+    #    progress()
+
+    def done_hook(future):
+        nonlocal svms
+        i, svm = future.result()
+        svms[i] = svm
+        progress()
+
+    with ProcessPoolExecutor(max_workers=6) as executor:
+        futures = [executor.submit(train_svm, i, train_xs, train_ys, c, epsilon, max_iter, kernel)
+                   for i in range(10)]
+        for future in futures:
+            future.add_done_callback(done_hook)
+    end_progress()
+
+    begin_progress('Reading test data')
+    test_xs, test_ys = load_digits('data/Ch02/digits/testDigits')
+    end_progress()
+
+    print('Testing svms:')
+    print('SVM handwritten error rate on train set: %{}'.format(
+        multi_get_error_rate(svms, train_xs, train_ys) * 100))
+    print('SVM handwritten error rate on test set: %{}'.format(
+        multi_get_error_rate(svms, test_xs, test_ys) * 100))
+
+
+if __name__ == '__main__':
+    #data, labels = load_data_set('data/Ch06/testSet.txt')
+    #os = smo(data, labels)
+    #plot_data(data, labels, os)
+
+    #test_rbf(1.3)
+    #test_hand_written()
+    test_hand_written(kernel=Gaussian(10))
 
