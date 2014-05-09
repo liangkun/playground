@@ -40,6 +40,25 @@ def plot_line(w, b, min_x0, max_x0):
     pp.plot([min_x0, max_x0], [min_x1, max_x1], 'k-')
 
 
+def plot_boundry(os):
+    min_x0 = np.min(os.xs, axis=0)[0, 0]
+    max_x0 = np.max(os.xs, axis=0)[0, 0]
+    min_x1 = np.min(os.xs, axis=0)[0, 1]
+    max_x1 = np.max(os.xs, axis=0)[0, 1]
+
+    x0s = np.arange(min_x0, max_x0, (max_x0 - min_x0) / 200)
+    x1s = np.arange(min_x1, max_x1, (max_x1 - min_x1) / 200)
+
+    x0_grid, x1_grid = np.meshgrid(x0s, x1s)
+    m, n = x0_grid.shape
+    h_grid = np.zeros((m, n))
+    for i in range(m):
+        for j in range(n):
+            h_grid[i, j] = svm_classify(os, [x0_grid[i, j], x1_grid[i, j]])
+
+    pp.contourf(x0_grid, x1_grid, h_grid, alpha=0.2)
+
+
 def plot_data(data, labels, os=None):
     pos = data[labels == 1]
     neg = data[labels == -1]
@@ -54,6 +73,8 @@ def plot_data(data, labels, os=None):
         if os.kernel == linear_kernel:
             plot_line(calc_w_linear_kernel(os), os.b,
                       np.min(data, axis=0)[0] + 2, np.max(data, axis=0)[0] - 2)
+        else:
+            plot_boundry(os)
     pp.show()
 
 
