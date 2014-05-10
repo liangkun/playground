@@ -4,8 +4,9 @@ import random
 import numpy as np
 import matplotlib.pyplot as pp
 from os import listdir
-from concurrent.futures import ProcessPoolExecutor, Future
+from concurrent.futures import ProcessPoolExecutor
 from grogress import begin_progress, progress, end_progress
+import cProfile
 
 
 def load_data_set(fname):
@@ -90,14 +91,8 @@ def linear_kernel(x1, x2):
     return x1 * x2
 
 
-class Gaussian:
-    def __init__(self, sigma=1):
-        self.sigma = 1
-
-    def __call__(self, *args, **kwargs):
-        x1 = args[0]
-        x2 = args[1]
-        return np.mat(np.exp(-np.sum((x1 - x2.T).A ** 2, axis=1) / (2 * self.sigma**2))).T
+def gaussian(x1, x2, sigma):
+    return np.mat(np.exp(-np.sum((x1 - x2.T).A ** 2, axis=1) / (2 * sigma**2))).T
 
 
 def create_gaussian(sigma=1):
@@ -208,6 +203,8 @@ class opt_struct:
             assert(len(k_cache) == self.m)
             self.k_cache = k_cache
 
+        self.used = np.zeros(self.m)
+
     def compack(self):
         self.xs = None
         self.ys = None
@@ -215,11 +212,32 @@ class opt_struct:
         self.alphas = None
         self.e_cache = None
         self.k_cache = None
+        self.used = None
 
 
 def calc_ek(os, k):
-    f_xk = np.multiply(os.alphas, os.ys).T * os.k_cache[:, k] + os.b
-    return f_xk - os.ys[k]
+    if os.e_cache[k, 0] == 1:
+        ek = os.e_cache[k, 1]
+    else:
+        f_xk = np.multiply(os.alphas, os.ys).T * os.k_cache[:, k] + os.b
+        ek = f_xk - os.ys[k]
+        os.e_cache[k] = [1, ek]
+
+    return ek
+
+
+def update_usage(os, uses=None):
+    if uses is None:
+        os.used = 0
+    else:
+        os.used[uses] = 1
+
+
+def invalid_e_cache(os, k=None):
+    if k is None:
+        os.e_cache[:, 0] = 0
+    else:
+        os.e_cache[k, 0] = 0
 
 
 def select_j(os, i, ei):
@@ -227,10 +245,9 @@ def select_j(os, i, ei):
     max_delta = 0
     ej = 0
 
-    os.e_cache[i] = [1, ei]
-    valid_caches = np.nonzero(os.e_cache[:, 0].A)[0]
-    if len(valid_caches) > 1:
-        for k in valid_caches:
+    used = np.nonzero(os.used)[0]
+    if len(used) > 0:
+        for k in used:
             if k == i:
                 continue
             ek = calc_ek(os, k)
@@ -244,11 +261,6 @@ def select_j(os, i, ei):
         j = select_j_random(i, os.m)
         ej = calc_ek(os, j)
         return j, ej
-
-
-def update_ek(os, k):
-    ek = calc_ek(os, k)
-    os.e_cache[k] = [1, ek]
 
 
 def inner_loop(os, i):
@@ -271,14 +283,15 @@ def inner_loop(os, i):
         if eta >=0:
             #print('DEBUG: eta >=0, skip this pair')
             return 0
-        os.alphas[j] -= os.ys[j] * (ei - ej) / eta
-        os.alphas[j] = clip_value(os.alphas[j], low, high)
-        update_ek(os, j)
-        if abs(os.alphas[j] - alpha_j_old) < 0.00001:
+        alpha_j_new = os.alphas[j] - os.ys[j] * (ei - ej) / eta
+        alpha_j_new = clip_value(alpha_j_new, low, high)
+        if abs(alpha_j_new - alpha_j_old) < 0.00001:
             #print('DEBUG: j not moving enough, skip')
             return 0
+        os.alphas[j] = alpha_j_new
         os.alphas[i] += os.ys[j] * os.ys[i] * (alpha_j_old - os.alphas[j])
-        update_ek(os, i)
+        invalid_e_cache(os)
+        update_usage(os, [i, j])
         b1 = os.b - ei - os.ys[i] * (os.alphas[i] - alpha_i_old) * os.k_cache[i, i] - \
                          os.ys[j] * (os.alphas[j] - alpha_j_old) * os.k_cache[i, j]
         b2 = os.b - ej - os.ys[i] * (os.alphas[i] - alpha_i_old) * os.k_cache[i, j] - \
@@ -360,7 +373,7 @@ def test_rbf(sigma):
     test = 'data/Ch06/testSetRBF2.txt'
 
     train_xs, train_ys = load_data_set(train)
-    os = smo(train_xs, train_ys, c=200, epsilon=0.0001, max_iter=10000, kernel=Gaussian(sigma))
+    os = smo(train_xs, train_ys, c=200, epsilon=0.0001, max_iter=10000, kernel=create_gaussian(sigma))
     plot_data(train_xs, train_ys, os)
 
     test_xs, test_ys = load_data_set(test)
@@ -381,9 +394,15 @@ def load_digits(dirname):
     fnames = listdir(dirname)
     data = []
     labels = []
+#    skip = -1
     for fname in fnames:
+#        skip += 1
+#        if skip <= 7:
+#            continue
         labels.append(float(fname.split('_')[0]))
         data.append(image2vector(dirname + '/' + fname))
+#        if skip > 9:
+#            skip = -1
         progress()
 
     return np.array(data), np.array(labels)
@@ -419,17 +438,20 @@ def train_svm(i, xs, ys, c, epsilon, max_iter, kernel, k_cache=None):
     return i, smo(xs, ys_i, c, epsilon, max_iter, kernel, k_cache=k_cache)
 
 
-def test_hand_written(c=200, epsilon=0.0001, max_iter=100, kernel=linear_kernel):
+def test_hand_written(c=200, epsilon=0.0001, max_iter=10000, kernel=linear_kernel):
+    train_dir = 'data/Ch02/digits/trainingDigits'
+    test_dir = 'data/Ch02/digits/testDigits'
     begin_progress('Reading train data')
-    train_xs, train_ys = load_digits('data/Ch02/digits/trainingDigits')
+    train_xs, train_ys = load_digits(train_dir)
     end_progress()
 
     begin_progress('Train svms')
-    svms = [None] * 10
+    num_classes = 10
+    svms = [None] * num_classes
     #k_cache = create_k_cache(train_xs, kernel)
-    #for i in range(10):
-    #    os = train_svm(i, train_xs, train_ys, c, epsilon, max_iter, kernel, k_cache)
-    #    svms.append(os)
+    #for i in range(num_classes):
+    #    k, os = train_svm(i, train_xs, train_ys, c, epsilon, max_iter, kernel, k_cache)
+    #    svms[k] = os
     #    progress()
 
     def done_hook(future):
@@ -440,13 +462,13 @@ def test_hand_written(c=200, epsilon=0.0001, max_iter=100, kernel=linear_kernel)
 
     with ProcessPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(train_svm, i, train_xs, train_ys, c, epsilon, max_iter, kernel)
-                   for i in range(10)]
+                   for i in range(num_classes)]
         for future in futures:
             future.add_done_callback(done_hook)
     end_progress()
 
     begin_progress('Reading test data')
-    test_xs, test_ys = load_digits('data/Ch02/digits/testDigits')
+    test_xs, test_ys = load_digits(test_dir)
     end_progress()
 
     print('Testing svms:')
@@ -455,6 +477,8 @@ def test_hand_written(c=200, epsilon=0.0001, max_iter=100, kernel=linear_kernel)
     print('SVM handwritten error rate on test set: %{}'.format(
         multi_get_error_rate(svms, test_xs, test_ys) * 100))
 
+def gaussian_10(x1, x2):
+    return gaussian(x1, x2, 10)
 
 if __name__ == '__main__':
     #data, labels = load_data_set('data/Ch06/testSet.txt')
@@ -463,5 +487,6 @@ if __name__ == '__main__':
 
     #test_rbf(1.3)
     #test_hand_written()
-    test_hand_written(kernel=Gaussian(10))
+    test_hand_written(kernel=gaussian_10)
+    #cProfile.run('test_hand_written(kernel=lambda x1, x2: gaussian(x1, x2, 10))', sort='time')
 
