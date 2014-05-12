@@ -7,6 +7,8 @@ from os import listdir
 from concurrent.futures import ProcessPoolExecutor
 from grogress import begin_progress, progress, end_progress
 import cProfile
+import winsound
+import pca
 
 
 def load_data_set(fname):
@@ -180,7 +182,7 @@ def create_k_cache(data, kernel):
     k_cache = np.mat(np.zeros((m, m)))
     for i in range(m):
         for j in range(m):
-            k_cache[i, j] = kernel(xs[i, :], xs[j, :].T)[0, 0]
+            k_cache[i, j] = (kernel(xs[i, :], xs[j, :].T)[0, 0]).real
 
     return k_cache
 
@@ -280,7 +282,7 @@ def inner_loop(os, i):
             #print('DEBUG: low == high, skip this pair')
             return 0
         eta = 2 * os.k_cache[i, j] - os.k_cache[i, i] - os.k_cache[j, j]
-        if eta >=0:
+        if eta >= 0:
             #print('DEBUG: eta >=0, skip this pair')
             return 0
         alpha_j_new = os.alphas[j] - os.ys[j] * (ei - ej) / eta
@@ -390,19 +392,19 @@ def image2vector(fname):
     return vec
 
 
-def load_digits(dirname):
+def load_digits(dirname, skip_rate=0.5):
     fnames = listdir(dirname)
     data = []
     labels = []
-#    skip = -1
+    skip = -1
     for fname in fnames:
-#        skip += 1
-#        if skip <= 7:
-#            continue
+        skip += 1
+        if skip < 10 * skip_rate:
+            continue
         labels.append(float(fname.split('_')[0]))
         data.append(image2vector(dirname + '/' + fname))
-#        if skip > 9:
-#            skip = -1
+        if skip > 9:
+            skip = -1
         progress()
 
     return np.array(data), np.array(labels)
@@ -438,47 +440,66 @@ def train_svm(i, xs, ys, c, epsilon, max_iter, kernel, k_cache=None):
     return i, smo(xs, ys_i, c, epsilon, max_iter, kernel, k_cache=k_cache)
 
 
-def test_hand_written(c=200, epsilon=0.0001, max_iter=10000, kernel=linear_kernel):
+def test_hand_written(c=200, epsilon=0.0001, max_iter=10000, kernel=linear_kernel, parallel=False):
     train_dir = 'data/Ch02/digits/trainingDigits'
     test_dir = 'data/Ch02/digits/testDigits'
     begin_progress('Reading train data')
     train_xs, train_ys = load_digits(train_dir)
     end_progress()
 
-    begin_progress('Train svms')
-    num_classes = 10
-    svms = [None] * num_classes
-    #k_cache = create_k_cache(train_xs, kernel)
-    #for i in range(num_classes):
-    #    k, os = train_svm(i, train_xs, train_ys, c, epsilon, max_iter, kernel, k_cache)
-    #    svms[k] = os
-    #    progress()
-
-    def done_hook(future):
-        nonlocal svms
-        i, svm = future.result()
-        svms[i] = svm
-        progress()
-
-    with ProcessPoolExecutor(max_workers=6) as executor:
-        futures = [executor.submit(train_svm, i, train_xs, train_ys, c, epsilon, max_iter, kernel)
-                   for i in range(num_classes)]
-        for future in futures:
-            future.add_done_callback(done_hook)
-    end_progress()
-
     begin_progress('Reading test data')
     test_xs, test_ys = load_digits(test_dir)
     end_progress()
 
-    print('Testing svms:')
-    print('SVM handwritten error rate on train set: %{}'.format(
-        multi_get_error_rate(svms, train_xs, train_ys) * 100))
-    print('SVM handwritten error rate on test set: %{}'.format(
-        multi_get_error_rate(svms, test_xs, test_ys) * 100))
+    vrate = 0.90
+    pcs, means = pca.pca(train_xs, vrate=vrate)
+    train_xs = pca.transform(train_xs, pcs, means)
+    test_xs = pca.transform(test_xs, pcs, means)
 
-def gaussian_10(x1, x2):
-    return gaussian(x1, x2, 10)
+    print("Dimension reduction from {} to {}".format(*pcs.shape))
+
+    begin_progress('Train svms')
+    num_classes = 10
+    svms = [None] * num_classes
+
+    if not parallel:
+        k_cache = create_k_cache(train_xs, kernel)
+        for i in range(num_classes):
+            k, os = train_svm(i, train_xs, train_ys, c, epsilon, max_iter, kernel, k_cache)
+            svms[k] = os
+            progress()
+    else:
+        def done_hook(future):
+            nonlocal svms
+            i, svm = future.result()
+            svms[i] = svm
+            progress()
+
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(train_svm,
+                                       i,
+                                       train_xs,
+                                       train_ys,
+                                       c,
+                                       epsilon,
+                                       max_iter,
+                                       kernel)
+                       for i in range(num_classes)]
+            for future in futures:
+                future.add_done_callback(done_hook)
+
+    end_progress()
+
+    print('Testing svms:')
+    train_er = multi_get_error_rate(svms, train_xs, train_ys) * 100
+    print('SVM handwritten error rate on train set: %{}'.format(train_er))
+    test_er = multi_get_error_rate(svms, test_xs, test_ys) * 100
+    print('SVM handwritten error rate on test set: %{}'.format(test_er))
+    return train_er, test_er
+
+
+def gaussian_x(x1, x2):
+    return gaussian(x1, x2, 7.3)
 
 if __name__ == '__main__':
     #data, labels = load_data_set('data/Ch06/testSet.txt')
@@ -487,6 +508,24 @@ if __name__ == '__main__':
 
     #test_rbf(1.3)
     #test_hand_written()
-    test_hand_written(kernel=gaussian_10)
-    #cProfile.run('test_hand_written(kernel=lambda x1, x2: gaussian(x1, x2, 10))', sort='time')
+    repeat_count = 10
+    train_total_er = 0
+    test_total_er = 0
+    for i in range(repeat_count):
+        train_er, test_er = test_hand_written(kernel=gaussian_x, parallel=True)
+        train_total_er += train_er
+        test_total_er += test_er
 
+    print('SVM avg train & test error rate on hand written digits: %{}, %{}'
+          .format(train_total_er/repeat_count, test_total_er/repeat_count))
+
+    winsound.PlaySound('C:\Windows\Media\Ring08', winsound.SND_FILENAME)
+
+    #cProfile.run('test_hand_written(kernel=lambda x1, x2: gaussian(x1, x2, 7.5))', sort='time')
+
+    #train_dir = 'data/Ch02/digits/trainingDigits'
+    #train_xs, train_ys = load_digits(train_dir, skip_rate=0)
+    #print("Shape of train_xs: ", train_xs.shape)
+    #vecs, means = pca.pca(train_xs)
+    #low_d_xs = pca.transform(train_xs, vecs, means)
+    #print("Shape of train_xs after pca: ", low_d_xs.shape)
