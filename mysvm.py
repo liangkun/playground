@@ -392,7 +392,7 @@ def image2vector(fname):
     return vec
 
 
-def load_digits(dirname, skip_rate=0.5):
+def load_digits(dirname, skip_rate=0):
     fnames = listdir(dirname)
     data = []
     labels = []
@@ -440,7 +440,7 @@ def train_svm(i, xs, ys, c, epsilon, max_iter, kernel, k_cache=None):
     return i, smo(xs, ys_i, c, epsilon, max_iter, kernel, k_cache=k_cache)
 
 
-def test_hand_written(c=200, epsilon=0.0001, max_iter=10000, kernel=linear_kernel, parallel=False):
+def test_hand_written(c=200, epsilon=0.0001, max_iter=100000, kernel=linear_kernel, parallel=False):
     train_dir = 'data/Ch02/digits/trainingDigits'
     test_dir = 'data/Ch02/digits/testDigits'
     begin_progress('Reading train data')
