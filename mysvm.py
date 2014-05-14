@@ -7,7 +7,7 @@ from os import listdir
 from concurrent.futures import ProcessPoolExecutor
 from grogress import begin_progress, progress, end_progress
 import cProfile
-import winsound
+#import winsound
 import pca
 
 
@@ -392,7 +392,7 @@ def image2vector(fname):
     return vec
 
 
-def load_digits(dirname, skip_rate=0):
+def load_digits(dirname, skip_rate=0.9):
     fnames = listdir(dirname)
     data = []
     labels = []
@@ -440,18 +440,18 @@ def train_svm(i, xs, ys, c, epsilon, max_iter, kernel, k_cache=None):
     return i, smo(xs, ys_i, c, epsilon, max_iter, kernel, k_cache=k_cache)
 
 
-def test_hand_written(c=200, epsilon=0.0001, max_iter=100000, kernel=linear_kernel, parallel=False):
+def test_hand_written(c=200, epsilon=0.0001, max_iter=10000, kernel=linear_kernel,
+                      parallel=False, skip_rate=0, vrate=0.90):
     train_dir = 'data/Ch02/digits/trainingDigits'
     test_dir = 'data/Ch02/digits/testDigits'
     begin_progress('Reading train data')
-    train_xs, train_ys = load_digits(train_dir)
+    train_xs, train_ys = load_digits(train_dir, skip_rate)
     end_progress()
 
     begin_progress('Reading test data')
-    test_xs, test_ys = load_digits(test_dir)
+    test_xs, test_ys = load_digits(test_dir, skip_rate)
     end_progress()
 
-    vrate = 0.90
     pcs, means = pca.pca(train_xs, vrate=vrate)
     train_xs = pca.transform(train_xs, pcs, means)
     test_xs = pca.transform(test_xs, pcs, means)
@@ -512,14 +512,20 @@ if __name__ == '__main__':
     train_total_er = 0
     test_total_er = 0
     for i in range(repeat_count):
-        train_er, test_er = test_hand_written(kernel=gaussian_x, parallel=True)
+        train_er, test_er = test_hand_written(c=200,
+                                              epsilon=0.0001,
+                                              max_iter=100000,
+                                              kernel=gaussian_x,
+                                              parallel=True,
+                                              skip_rate=0.5,
+                                              vrate=0.90)
         train_total_er += train_er
         test_total_er += test_er
 
     print('SVM avg train & test error rate on hand written digits: %{}, %{}'
           .format(train_total_er/repeat_count, test_total_er/repeat_count))
 
-    winsound.PlaySound('C:\Windows\Media\Ring08', winsound.SND_FILENAME)
+    #winsound.PlaySound('C:\Windows\Media\Ring08', winsound.SND_FILENAME)
 
     #cProfile.run('test_hand_written(kernel=lambda x1, x2: gaussian(x1, x2, 7.5))', sort='time')
 

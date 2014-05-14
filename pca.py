@@ -24,8 +24,7 @@ def pca(data, vrate=0.95, n=None):
     means = np.mean(data, axis=0)
     mn_data = data - means
     covarience = np.cov(mn_data, bias=1, rowvar=0)
-    eig_vals, eig_vecs = la.eig(covarience)
-    sorted_idxes = np.argsort(eig_vals)
+    eig_vecs, eig_vals, v = la.svd(covarience)
 
     num_vecs = n
     if num_vecs is None:
@@ -33,10 +32,10 @@ def pca(data, vrate=0.95, n=None):
         partial_eig_vals = 0
         num_vecs = 0
         while partial_eig_vals / total_eig_vals < vrate:
+            partial_eig_vals += eig_vals[num_vecs]
             num_vecs += 1
-            partial_eig_vals += eig_vals[sorted_idxes[-num_vecs]]
 
-    pcs = eig_vecs[:, sorted_idxes[-num_vecs:]]
+    pcs = eig_vecs[:, 0:num_vecs]
 
     return pcs, means
 
