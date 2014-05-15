@@ -514,11 +514,11 @@ if __name__ == '__main__':
     for i in range(repeat_count):
         train_er, test_er = test_hand_written(c=200,
                                               epsilon=0.0001,
-                                              max_iter=100000,
+                                              max_iter=10000,
                                               kernel=gaussian_x,
                                               parallel=True,
                                               skip_rate=0.5,
-                                              vrate=0.90)
+                                              vrate=0.95)
         train_total_er += train_er
         test_total_er += test_er
 
