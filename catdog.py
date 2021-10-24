@@ -9,8 +9,8 @@ import cv2
 
 class CatsDogs(Dataset):
     def __init__(self, folder, transform=None):
-        cat_fnames = glob(folder + '/cats/*.jpg')
-        dog_fnames = glob(folder +'/dogs/*.jpg')
+        cat_fnames = glob(folder + '/cats/*.jpg')[:500]
+        dog_fnames = glob(folder +'/dogs/*.jpg')[:500]
         self.fnames = cat_fnames + dog_fnames
         shuffle(self.fnames)
         self.labels = [fname.split('/')[-1].startswith('dog') for fname in self.fnames]
