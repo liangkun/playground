@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pandas as pd
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt, patches
 
 import torch
 from torch.utils.data import random_split
@@ -42,3 +42,14 @@ n_test = n_samples - n_train - n_val
 
 train_ds, val_ds, test_ds = random_split(samples, [n_train, n_val, n_test])
 print('trainset: %d, valset: %d, testset: %d' % (len(train_ds), len(val_ds), len(test_ds)))
+
+# plot a image to verify
+image, labels, bbs = test_ds[0]
+fig, ax = plt.subplots()
+ax.imshow(image.permute(1,2,0))
+for i in range(len(bbs)):
+    bb = bbs[i]
+    label = labels[i]
+    xmin, ymin, xmax, ymax = bb[0], bb[1], bb[2], bb[3]
+    ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax-ymin, fill=False, edgecolor='green', lw=2))
+    ax.text(xmin, ymin, label)
