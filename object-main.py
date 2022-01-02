@@ -45,11 +45,12 @@ print('trainset: %d, valset: %d, testset: %d' % (len(train_ds), len(val_ds), len
 
 # plot a image to verify
 image, labels, bbs = test_ds[0]
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(10, 10))
 ax.imshow(image.permute(1,2,0))
 for i in range(len(bbs)):
     bb = bbs[i]
     label = labels[i]
     xmin, ymin, xmax, ymax = bb[0], bb[1], bb[2], bb[3]
     ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax-ymin, fill=False, edgecolor='green', lw=2))
-    ax.text(xmin, ymin, label)
+    ax.text(xmin, ymin, label, color='red', fontsize=10, weight='bold')
+plt.show()
