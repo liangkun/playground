@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 #-*- coding:utf-8 -*-
 
-import cv2
+from PIL import Image
+import torch
 import pandas as pd
 import os
 import glob
 from torch.utils.data import Dataset
 
 class GTSRB(Dataset):
-    def __init__(self, dir, train=True, meta=None, transforms=None):
+    def __init__(self, dir, train=True, meta=None, transforms=None, testtransforms=None):
         super().__init__()
         self.train = train
         if train:
@@ -19,13 +20,17 @@ class GTSRB(Dataset):
         if meta:
             self.id2name, self.name2id = GTSRB.parse_meta(meta)
         self.transforms = transforms
+        self.testtransforms = testtransforms
     
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, ix):
         path = self.files[ix]
-        img = cv2.imread(path)
+        img = Image.open(path)
+        # img = cv2.resize(img, (32, 32))
+        # img = img / 255.0
+        # img = torch.tensor(img, dtype=torch.float).permute(2, 0, 1)
         label = -1
         if self.train and self.id2name:
             parent = os.path.dirname(path)
@@ -36,7 +41,17 @@ class GTSRB(Dataset):
     def collate_fn(self, batch):
         imgs, labels = list(zip(*batch))
         if self.transforms:
-            imgs = self.transforms(imgs)
+            imgs = [self.transforms(img).unsqueeze(0) for img in imgs]
+        imgs = torch.cat(imgs)
+        labels = torch.tensor(labels)
+        return imgs, labels
+    
+    def test_collate_fn(self, batch):
+        imgs, labels = list(zip(*batch))
+        if self.testtransforms:
+            imgs = [self.testtransforms(img).unsqueeze(0) for img in imgs]
+        imgs = torch.cat(imgs)
+        labels = torch.tensor(labels)
         return imgs, labels
 
     @staticmethod
