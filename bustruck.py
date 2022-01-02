@@ -34,7 +34,7 @@ class BusTruckDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = torch.tensor(image/255, dtype=torch.float32).permute(2, 0, 1)
 
-        return image, self.labels[ix], self.gtbbs
+        return image, self.labels[ix], self.gtbbs[ix]
     
     def collate_fn(self, batch):
         pass
