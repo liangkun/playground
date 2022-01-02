@@ -37,7 +37,7 @@ for image_id in image_ids:
 samples = BusTruckDataset(IMAGE_ROOT, image_ids, image_labels, image_gtbbs, h=IMAGE_H, w=IMAGE_W)
 n_samples = len(samples)
 n_train = int(n_samples * 0.7)
-n_val = (n_samples - n_train) / 2
+n_val = (n_samples - n_train) // 2
 n_test = n_samples - n_train - n_val
 
 train_ds, val_ds, test_ds = random_split(samples, [n_train, n_val, n_test])
