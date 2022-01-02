@@ -10,4 +10,8 @@ class FRCNN(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.backbone = models.resnet18(pretrained=True)
+        self.backbone = models.vgg11_bn(pretrained=True)
+    
+    def forward(self, xs):
+        res = self.backbone(xs)
+        return res
