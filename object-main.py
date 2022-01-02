@@ -14,6 +14,7 @@ IMAGE_ROOT = 'F:\\datasets\\bus-trucks\\images\\images'
 DF_PATH = 'F:\\datasets\\bus-trucks\\df.csv'
 #DF_PATH = './df.csv'
 NAME2LABEL = {'BG':0, 'Truck':1, 'Bus':2}
+LABEL2NAME = ['BG', 'Truck', 'Bus']
 IMAGE_H = 224
 IMAGE_W = 224
 N_SAMPLES = 50
@@ -51,6 +52,6 @@ for i in range(len(bbs)):
     bb = bbs[i]
     label = labels[i]
     xmin, ymin, xmax, ymax = bb[0], bb[1], bb[2], bb[3]
-    ax.add_patch(patches.Rectangle((xmin, ymin), xmax - xmin, ymax-ymin, fill=False, edgecolor='green', lw=2))
-    ax.text(xmin, ymin, label, color='red', fontsize=10, weight='bold')
+    ax.add_patch(patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin, fill=False, edgecolor='green', lw=2))
+    ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
 plt.show()
