@@ -45,13 +45,16 @@ train_ds, val_ds, test_ds = random_split(samples, [n_train, n_val, n_test])
 print('trainset: %d, valset: %d, testset: %d' % (len(train_ds), len(val_ds), len(test_ds)))
 
 # plot a image to verify
-image, labels, bbs = test_ds[0]
-fig, ax = plt.subplots(figsize=(10, 10))
-ax.imshow(image.permute(1,2,0))
-for i in range(len(bbs)):
-    bb = bbs[i]
-    label = labels[i]
-    xmin, ymin, xmax, ymax = bb[0], bb[1], bb[2], bb[3]
-    ax.add_patch(patches.Rectangle((xmin, ymin), xmax-xmin, ymax-ymin, fill=False, edgecolor='green', lw=2))
-    ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+for i, ax in enumerate(axes.flat):
+    image, labels, bbs = train_ds[i]
+    ax.imshow(image.permute(1,2,0))
+    for j in range(len(bbs)):
+        bb = bbs[j]
+        label = labels[j]
+        xmin, ymin, xmax, ymax = bb[0], bb[1], bb[2], bb[3]
+        w = xmax - xmin
+        h = ymax - ymin
+        ax.add_patch(patches.Rectangle((xmin, ymin), w, h, fill=False, edgecolor='green', lw=2))
+        ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
 plt.show()
