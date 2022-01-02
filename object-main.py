@@ -3,6 +3,7 @@
 
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
 
 IMAGE_ROOT = 'F:\\datasets\\bus-trucks\\images\\images'
 DF_PATH = 'F:\\datasets\\bus-trucks\\df.csv'
@@ -21,5 +22,14 @@ for image_id in image_ids:
     ymins = imagedf['YMin'].tolist()
     xmaxs = imagedf['XMax'].tolist()
     ymaxs = imagedf['YMax'].tolist()
-    image_gtbbs.extend(zip(xmins, ymins, xmaxs, ymaxs))
+    image_gtbbs.append(zip(xmins, ymins, xmaxs, ymaxs))
 
+image_labels = torch.tensor(image_labels, dtype=torch.int)
+image_gtbbs = torch.tensor(image_gtbbs, dtype=torch.float32)
+
+print(len(image_ids))
+print(image_ids[0])
+print(image_labels.shape)
+print(image_labels[0])
+print(image_gtbbs.shape)
+print(image_gtbbs[0])
