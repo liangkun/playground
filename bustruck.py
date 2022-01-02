@@ -17,7 +17,6 @@ class BusTruckDataset(Dataset):
             2D tensor of shape (K, 4). Each row contains [x_min, y_min, x_max, y_max] as ratio.
     """
     def __init__(self, image_root, image_ids, labels, gtbbs, h=224, w=224):
-        super.__init__()
         self.image_root = image_root
         self.image_ids = image_ids
         self.labels = labels
