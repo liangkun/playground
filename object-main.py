@@ -45,8 +45,6 @@ print('trainset: %d, valset: %d, testset: %d' % (len(train_ds), len(val_ds), len
 
 # plot a image to verify
 image, labels, bbs = test_ds[0]
-print(labels)
-print(bbs)
 fig, ax = plt.subplots()
 ax.imshow(image.permute(1,2,0))
 for i in range(len(bbs)):
