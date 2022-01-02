@@ -58,3 +58,4 @@ for i, ax in enumerate(axes.flat):
         ax.add_patch(patches.Rectangle((xmin, ymin), w, h, fill=False, edgecolor='green', lw=2))
         ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
 plt.show()
+
