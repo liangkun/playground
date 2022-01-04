@@ -10,7 +10,11 @@ class FRCNN(nn.Module):
     """
     def __init__(self):
         super().__init__()
-        self.backbone = models.vgg11_bn(pretrained=True)
+        vgg11 = models.vgg11_bn(pretrained=True)
+        for param in vgg11.features.parameters():
+            param.requires_grad = False
+        
+        self.backbone = vgg11.features[:-1]
     
     def forward(self, xs):
         res = self.backbone(xs)
