@@ -4,6 +4,7 @@
 import torch
 from torch import nn
 from torchvision import models
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 
 class FRCNN(nn.Module):
     r"""Faster R-CNN model implementation.
@@ -19,3 +20,6 @@ class FRCNN(nn.Module):
     def forward(self, xs):
         res = self.backbone(xs)
         return res
+
+def get_model(name='frcnn'):
+    model = models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
