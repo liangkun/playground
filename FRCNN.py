@@ -23,3 +23,4 @@ class FRCNN(nn.Module):
 
 def get_model(name='frcnn'):
     model = models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
+    return model

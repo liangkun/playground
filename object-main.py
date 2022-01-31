@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import random_split
 from torchsummary import summary
 
-from FRCNN import FRCNN
+from FRCNN import get_model
 from bustruck import BusTruckDataset
 
 # input params
@@ -63,10 +63,6 @@ def plot_samples(ds):
             ax.add_patch(patches.Rectangle((xmin, ymin), w, h, fill=False, edgecolor='green', lw=2))
             ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
     plt.show()
-
-def get_model():
-    model = FRCNN()
-    return model
 
 if __name__ == "__main__":
     model = get_model()
