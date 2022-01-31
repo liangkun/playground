@@ -21,6 +21,8 @@ class FRCNN(nn.Module):
         res = self.backbone(xs)
         return res
 
-def get_model(name='frcnn'):
+def get_model(num_classes):
     model = models.detection.fasterrcnn_resnet50_fpn(pretrained=True)
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes=num_classes)
     return model
