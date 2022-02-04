@@ -21,7 +21,7 @@ def up_conv(in_channels, out_channels):
 class Unet(nn.Module):
     def __init__(self, pretrained=True, out_channels=12):
         super().__init__()
-        self.encoder = vgg16_bn(pretrained=True).features
+        self.encoder = vgg16_bn(pretrained=pretrained).features
         self.block1 = nn.Sequential(*self.encoder[:6])
         self.block2 = nn.Sequential(*self.encoder[6:13])
         self.block3 = nn.Sequential(*self.encoder[13:20])
