@@ -18,10 +18,10 @@ from FRCNN import get_model
 from bustruck import BusTruckDataset, prepare_dataset
 
 # input params
-# IMAGE_ROOT = 'F:\\datasets\\bus-trucks\\images\\images'
-IMAGE_ROOT = '/Users/liangkun/dataset/bus-trucks/images'
-# DF_PATH = 'F:\\datasets\\bus-trucks\\df.csv'
-DF_PATH = '/Users/liangkun/dataset/bus-trucks/df.csv'
+IMAGE_ROOT = 'E:\\datasets\\bus-trucks\\images\\images'
+#IMAGE_ROOT = '/Users/liangkun/dataset/bus-trucks/images'
+DF_PATH = 'E:\\datasets\\bus-trucks\\df.csv'
+#DF_PATH = '/Users/liangkun/dataset/bus-trucks/df.csv'
 NAME2LABEL = {'BG':0, 'Truck':1, 'Bus':2}
 LABEL2NAME = ['BG', 'Truck', 'Bus']
 NUM_CLASSES = len(NAME2LABEL)
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     test_dl = DataLoader(test_ds, batch_size=1, shuffle=False, collate_fn=collate_fn)
     model = get_model(NUM_CLASSES)
     model = model.to(device)
-    summary(model)
+    #summary(model, input_size=(3, 224, 224))
 
     optimizer = optim.SGD(params=model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
     # trainning loop
