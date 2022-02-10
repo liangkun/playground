@@ -27,7 +27,7 @@ LABEL2NAME = ['BG', 'Truck', 'Bus']
 NUM_CLASSES = len(NAME2LABEL)
 IMAGE_H = 224
 IMAGE_W = 224
-N_SAMPLES = 500
+N_SAMPLES = -1
 
 def collate_fn(batch):
     return tuple(zip(*batch))
@@ -50,11 +50,11 @@ def plot_samples(ds, nrow, ncol, figsize=(6, 6)):
             ax.text(xmin, ymin, LABEL2NAME[label], color='red', fontsize=10, weight='bold')
     plt.show()
 
-def train_batch(xs, yx, model, optimizer):
+def train_batch(xs, ys, model, optimizer):
     model.train()
     optimizer.zero_grad()
     losses = model(xs, ys)
-    loss = np.sum(loss for loss in losses.values())
+    loss = sum(loss for loss in losses.values())
     loss.backward()
     optimizer.step()
     return loss.item()
@@ -63,7 +63,7 @@ def train_batch(xs, yx, model, optimizer):
 def validate_batch(xs, ys, model):
     model.train()
     losses = model(xs, ys)
-    loss = np.sum(loss for loss in losses.values())
+    loss = sum(loss for loss in losses.values())
     return loss.item()
 
 if __name__ == "__main__":
@@ -77,6 +77,7 @@ if __name__ == "__main__":
     #summary(model, input_size=(3, 224, 224))
 
     optimizer = optim.SGD(params=model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
+    ls_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.3, patience=5, verbose=True)
     # trainning loop
     train_losses = []
     val_losses = []
@@ -98,7 +99,8 @@ if __name__ == "__main__":
             loss = validate_batch(nxs, nys, model)
             val_epoch_losses.append(loss)
         val_loss = np.mean(val_epoch_losses)
+        ls_scheduler.step(val_loss)
         val_losses.append(val_loss)
-        
+        torch.save(model, 'frcnn.pth')
         consume = time.time() - start
         print("epcho: %d, consume: %ds, train loss: %.4f, val loss: %.4f" % (epoch, consume, train_loss, val_loss))

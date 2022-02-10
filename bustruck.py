@@ -47,7 +47,9 @@ class BusTruckDataset(Dataset):
 def prepare_dataset(df_path, image_root, image_w, image_h, nsamples, name2label):
     # Prepare BusTruckDataset
     raw = pd.read_csv(df_path)
-    image_ids = raw['ImageID'].unique().tolist()[:nsamples]
+    image_ids = raw['ImageID'].unique().tolist()
+    if nsamples > 0:
+        image_ids = image_ids[:nsamples]
     image_labels = []
     image_gtbbs = []
 
