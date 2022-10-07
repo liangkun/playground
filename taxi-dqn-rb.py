@@ -180,6 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--test", default=False, action="store_true")
     parser.add_argument("--model", default="taxi-qnet.pt", type=str)
     parser.add_argument("--visual", default=False, action="store_true")
+    parser.add_argument("--episodes", default=100, type=int)
     options = parser.parse_args(sys.argv[1:])
 
     if options.visual:
@@ -189,10 +190,10 @@ if __name__ == "__main__":
     model = DQN(env, replay_capacity=50000, gamma=0.95, target_update_freq=100, lr=1e-3)
     if options.test:
         model.load(options.model)
-        model.test(episodes=100)
+        model.test(episodes=options.episodes)
     else:
         model.train(episodes=20000, eps=0.8, batchsize=32)
         model.save(options.model)
-        model.test(episodes=100)
+        model.test(episodes=options.episodes)
     
     env.close()
