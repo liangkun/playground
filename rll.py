@@ -79,6 +79,7 @@ class Agent:
             normalized_qs = (qs - qs.mean()) / (qs.std() + 1e-6)
             log_probs = torch.tensor(log_probs, requires_grad=True)
             loss = - (normalized_qs @ log_probs)
+            loss = loss / len(normalized_qs)
 
             optimizer.zero_grad()
             loss.backward()
