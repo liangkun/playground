@@ -10,8 +10,9 @@ import torch.nn.functional as F
 import numpy as np
 
 class Policy(nn.Module):
-    def __init__(self, env: gym.Env, options=None):
+    def __init__(self, env: gym.Env, options=None, device="cpu"):
         super().__init__()
+        self.device = torch.device(device)
         self.n_states = env.observation_space.shape[0]
         self.n_actions = env.action_space.n
         self.model = nn.Sequential(
@@ -21,19 +22,43 @@ class Policy(nn.Module):
             nn.ReLU(),
             nn.Linear(20, self.n_actions),
             nn.Softmax(dim=-1)
-        )
+        ).to(self.device)
         self.options = options
     
     def forward(self, xs):
+        xs = xs.to(self.device)
         return self.model(xs)
 
     def select_action(self, state):
         self.eval()
         state = torch.FloatTensor(state)
         probabilities = self(state).detach()
+        probabilities = probabilities.cpu()
         c = Categorical(probabilities)
         action = c.sample()
         return action.item()
+    
+    def train_batch(self, states, rewards, actions, optimizer):
+        self.train()
+        optimizer.zero_grad()
+
+        states = torch.FloatTensor(np.array(states)).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        actions = torch.LongTensor(actions).to(self.device)
+
+        # convert probabilities to log probabilities
+        log_probs = torch.log(self(states))
+        selected_log_probs = torch.gather(log_probs, dim=1, index=actions.unsqueeze(1)).squeeze(1)
+        #print(selected_log_probs.cpu())
+        #selected_log_probs = log_probs[np.arange(len(actions)), actions]
+        # Loss is negative of expected policy function J = R * log_prob
+        loss = -(rewards * selected_log_probs).mean()
+
+        # Do the update gradient descent(with negative reward hence is gradient ascent) 
+        loss.backward()
+        optimizer.step()
+
+        return loss.cpu().item()
 
 class Agent:
     def __init__(self, env: gym.Env, policy: nn.Module, options=None):
@@ -59,26 +84,6 @@ class Agent:
         result = (result - result.mean()) / result.std()
 
         return result
-
-    def train_batch(self, states, rewards, actions, optimizer):
-        self.policy.train()
-        optimizer.zero_grad()
-
-        states = torch.FloatTensor(np.array(states))
-        rewards = torch.FloatTensor(rewards)
-        actions = torch.LongTensor(actions)
-
-        # convert probabilities to log probabilities
-        log_probs = torch.log(self.policy(states))
-        selected_log_probs = log_probs[np.arange(len(actions)), actions]
-        # Loss is negative of expected policy function J = R * log_prob
-        loss = -(rewards * selected_log_probs).mean()
-
-        # Do the update gradient descent(with negative reward hence is gradient ascent) 
-        loss.backward()
-        optimizer.step()
-
-        return loss.item()
 
     def train(self):
         opt = torch.optim.Adam(self.policy.parameters(), lr=self.options.lr)
@@ -111,7 +116,7 @@ class Agent:
             total_rewards.append(np.sum(rewards))
 
             if batch_count == self.options.batchsize:
-                loss = self.train_batch(batch_states, batch_qs, batch_actions, opt)
+                loss = self.policy.train_batch(batch_states, batch_qs, batch_actions, opt)
                 batch_states = []
                 batch_actions = []
                 batch_qs = []
