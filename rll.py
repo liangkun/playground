@@ -89,7 +89,7 @@ class Agent:
         opt = torch.optim.Adam(self.policy.parameters(), lr=self.options.lr)
 
         lr_steps = int(self.options.episodes / self.options.batchsize)
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=int(lr_steps/3), gamma=0.1, verbose=True)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=int(lr_steps/3), gamma=0.2, verbose=True)
         total_rewards = []
         total_loss = []
 
@@ -123,6 +123,12 @@ class Agent:
             batch_count += 1
             total_rewards.append(np.sum(rewards))
 
+            if episode % self.options.log_interval == 0:
+                avg_reward = np.mean(total_rewards)
+                total_rewards = []
+                current = time.time()
+                print(f"episode: {episode}, value(s): {avg_reward:.2f}, total time: {current-start:.0f}")
+
             if batch_count == self.options.batchsize:
                 loss = self.policy.train_batch(batch_states, batch_qs, batch_actions, opt)
                 batch_states = []
@@ -132,14 +138,11 @@ class Agent:
                 total_loss.append(loss)
                 lr_scheduler.step()
                 batches += 1
-            
-                if batches % self.options.log_interval == 0:
-                    avg_reward = np.mean(total_rewards)
-                    avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
-                    total_rewards = []
+
+                if batches % 10 == 0:
+                    avg_loss = np.mean(total_loss)
                     total_loss = []
-                    current = time.time()
-                    print(f"batches: {batches}, value(s): {avg_reward:.2f}, loss: {avg_loss:.8f}, total time: {current-start}")
+                    print(f"last 10 batches avg loss: {avg_loss:.8f}")
             episode += 1
 
     def save(self, file):
