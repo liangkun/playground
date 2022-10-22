@@ -88,6 +88,8 @@ class Agent:
     def train(self):
         opt = torch.optim.Adam(self.policy.parameters(), lr=self.options.lr)
 
+        lr_steps = int(self.options.episodes / self.options.batchsize)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=int(lr_steps/3), gamma=0.1, verbose=True)
         total_rewards = []
         total_loss = []
 
@@ -95,19 +97,25 @@ class Agent:
         batch_actions = []
         batch_qs = []
         batch_count = 0
-        for episode in range(self.options.episodes + 1):
+        batches = 0
+        episode = 0
+        start = time.time()
+        while episode < self.options.episodes:
             s, _ = self.env.reset()
             done = False
             states = []
             actions = []
             rewards = []
-            while (not done) and (len(states) <= self.options.max_episode_length):
+            while (not done) and (len(states) < self.options.max_episode_length):
                 action = self.policy.select_action(s)
                 sn, r, done, _, _ = self.env.step(action)
                 states.append(s)
                 actions.append(action)
                 rewards.append(r)
                 s = sn
+
+            if len(states) >= self.options.max_episode_length:
+                continue  # ignore truncated trace
             
             batch_states.extend(states)
             batch_actions.extend(actions)
@@ -122,13 +130,17 @@ class Agent:
                 batch_qs = []
                 batch_count = 0
                 total_loss.append(loss)
+                lr_scheduler.step()
+                batches += 1
             
-            if episode % self.options.log_interval == 0:
-                avg_reward = np.mean(total_rewards)
-                avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
-                total_rewards = []
-                total_loss = []
-                print(f"episode: {episode}, value(s): {avg_reward:.2f}, loss: {avg_loss:.4f}")
+                if batches % self.options.log_interval == 0:
+                    avg_reward = np.mean(total_rewards)
+                    avg_loss = np.mean(total_loss) if len(total_loss) > 0 else 0
+                    total_rewards = []
+                    total_loss = []
+                    current = time.time()
+                    print(f"batches: {batches}, value(s): {avg_reward:.2f}, loss: {avg_loss:.8f}, total time: {current-start}")
+            episode += 1
 
     def save(self, file):
         torch.save(self.policy, file)
@@ -152,12 +164,16 @@ class Agent:
 
 def reinforce(options):
     render_mode = "human" if options.action == "play" else None
-    env = gym.make("CartPole-v1", render_mode=render_mode)
+    env = gym.make("MountainCar-v0", render_mode=render_mode)
     policy = Policy(env)
     agent = Agent(env, policy, options=options)
 
     if options.action == "train":
+        if options.pretrain:
+            agent.load(options.pretrain)
+
         agent.train()
+
         if options.policy:
             agent.save(options.policy)
     elif options.action == "play":
@@ -200,6 +216,8 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=1.0)
     parser.add_argument("--action", type=str, default="train", choices=["train", "play"])
     parser.add_argument("--policy", type=str, default=None, help="policy model file/path")
+    parser.add_argument("--pretrain", type=str, default=None, help="policy model file/path")
+
     options = parser.parse_args(sys.argv[1:])
 
     if options.prog in REGISTRY:
