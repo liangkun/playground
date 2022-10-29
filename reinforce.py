@@ -10,6 +10,20 @@ import torch.nn.functional as F
 import numpy as np
 
 class Policy(nn.Module):
+    """base class of policy"""
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, xs):
+        pass
+
+    def select_action(self, state):
+        pass
+
+    def train_batch(self, states, rewards, actions, optimizer):
+        pass
+
+class ReinforcePolicy(Policy):
     def __init__(self, env: gym.Env, options=None, device="cpu"):
         super().__init__()
         self.device = torch.device(device)
@@ -49,9 +63,6 @@ class Policy(nn.Module):
         # convert probabilities to log probabilities
         log_probs = torch.log(self(states))
         selected_log_probs = torch.gather(log_probs, dim=1, index=actions.unsqueeze(1)).squeeze(1)
-        #print(selected_log_probs.cpu())
-        #selected_log_probs = log_probs[np.arange(len(actions)), actions]
-        # Loss is negative of expected policy function J = R * log_prob
         loss = -(rewards * selected_log_probs).mean()
 
         # Do the update gradient descent(with negative reward hence is gradient ascent) 
@@ -84,12 +95,16 @@ class Agent:
         result = (result - result.mean()) / result.std()
 
         return result
+    
+    def run_episode(self):
+        """run one episode, collect trajectory"""
+        
 
-    def train(self):
+    def train(self, workers=1):
         opt = torch.optim.Adam(self.policy.parameters(), lr=self.options.lr)
 
         lr_steps = int(self.options.episodes / self.options.batchsize)
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=int(lr_steps/3), gamma=0.2, verbose=True)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(opt, step_size=int(lr_steps/3), gamma=0.2)
         total_rewards = []
         total_loss = []
 
@@ -140,9 +155,10 @@ class Agent:
                 batches += 1
 
                 if batches % 10 == 0:
+                    current_lr = lr_scheduler.get_last_lr()
                     avg_loss = np.mean(total_loss)
                     total_loss = []
-                    print(f"last 10 batches avg loss: {avg_loss:.8f}")
+                    print(f"last 10 batches avg loss: {avg_loss:.8f}, current_lr: {current_lr:.6f}")
             episode += 1
 
     def save(self, file):
@@ -168,7 +184,7 @@ class Agent:
 def reinforce(options):
     render_mode = "human" if options.action == "play" else None
     env = gym.make("MountainCar-v0", render_mode=render_mode)
-    policy = Policy(env)
+    policy = ReinforcePolicy(env)
     agent = Agent(env, policy, options=options)
 
     if options.action == "train":
@@ -192,6 +208,8 @@ def reinforce(options):
 
 def test_env(options):
     env = gym.make(options.env, render_mode="human")
+    print(env.observation_space)
+    print(env.action_space)
     si, _ = env.reset()
     done = False
     while not done:
@@ -210,7 +228,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser("RLL")
     parser.add_argument("--prog", type=str, default="test_env")
-    parser.add_argument("--env", type=str, default="Humanoid-v4")
+    parser.add_argument("--env", type=str, default="Walker2d-v4")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--episodes", type=int, default=1000)
     parser.add_argument("--batchsize", type=int, default=32)
