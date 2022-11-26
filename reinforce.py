@@ -158,7 +158,7 @@ class Agent:
                     current_lr = lr_scheduler.get_last_lr()
                     avg_loss = np.mean(total_loss)
                     total_loss = []
-                    print(f"last 10 batches avg loss: {avg_loss:.8f}, current_lr: {current_lr:.6f}")
+                    print(f"last 10 batches avg loss: {avg_loss}, current_lr: {current_lr}")
             episode += 1
 
     def save(self, file):
