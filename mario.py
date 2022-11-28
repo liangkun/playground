@@ -19,7 +19,7 @@ from gym.wrappers import FrameStack
 from nes_py.wrappers import JoypadSpace
 
 import gym_super_mario_bros
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT, RIGHT_ONLY
+from gym_super_mario_bros.actions import SIMPLE_MOVEMENT, RIGHT_ONLY, COMPLEX_MOVEMENT
 
 OB_H = 168
 OB_W = 168
@@ -47,137 +47,166 @@ class SkipFrame(gym.Wrapper):
 
 class ObsTensor(gym.ObservationWrapper):
     """transform observation into torch tensor of specified shape"""
-    def __init__(self, env, shape):
+    def __init__(self, env, shape, options):
         super().__init__(env)
         if isinstance(shape, int):
             self.shape = (shape, shape)
         else:
             self.shape = shape
 
-        obs_shape = (1,) + self.shape
+        if options.fullcolor:
+            channel = 3
+        else:
+            channel = 1
+        obs_shape = (channel,) + self.shape
         self.observation_space = Box(low=0.0, high=1.0, shape=obs_shape, dtype=float)
-        self.transforms = T.Compose([
-            T.ToTensor(),
-            T.Resize(self.shape),
-            T.Grayscale()
-        ])
+
+        transforms = [T.ToTensor(), T.Resize(self.shape)]
+        if not options.fullcolor:
+            transforms.append(T.Grayscale())
+        self.transforms = T.Compose(transforms)
     
     def observation(self, observation):
         return self.transforms(observation.copy()).squeeze(0)
 
 class MarioNet(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, options):
         super().__init__()
-
-        self.c, _, _ = input_dim
+        self.c = input_dim[0]
         self.output_dim = output_dim
+        self.backbone_dim = 4608 #18496
 
-        self.policy = nn.Sequential(
-            nn.Conv2d(in_channels=self.c, out_channels=32, kernel_size=8, stride=4),
-            nn.BatchNorm2d(32),
+        if options.fullcolor:
+            self.backbone = self.create_3d_net()
+        else:
+            self.backbone = self.create_grayscale_net()
+
+        self.vnet = nn.Sequential(
+            nn.Linear(self.backbone_dim, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
-            nn.BatchNorm2d(64),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
-            nn.BatchNorm2d(64),
+            nn.Linear(256, 1)
+        )
+        self.anet = nn.Sequential(
+            nn.Linear(self.backbone_dim, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(18496, 512),
+            nn.Linear(1024, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Linear(512, self.output_dim)
         )
-        self.policy.train()
-
-        self.target = copy.deepcopy(self.policy)
-        for p in self.target.parameters():
+    
+    def forward(self, xs):
+        fc = self.backbone(xs)
+        v = self.vnet(fc)
+        a = self.anet(fc)
+        amean = torch.mean(a, dim=1, keepdim=True)
+        qvalues = v + (a - amean)
+        return qvalues
+    
+    def get_target_net(self):
+        target = copy.deepcopy(self)
+        for p in target.parameters():
             p.requires_grad = False
-        self.target.eval()
+        return target
     
-    def forward(self, xs, model="policy"):
-        if model == "policy":
-            return self.policy(xs)
-        elif model == "target":
-            return self.target(xs)
-        else:
-            raise Exception(f"unknown model: {model}")
-
-class MarioStopper:
-    def __init__(self, xstopper):
-        self.last_x_pos = -1
-        self.last_x_pos_cnt = 0
-        self.xstopper = xstopper
+    def create_grayscale_net(self):
+        return nn.Sequential(
+            nn.Conv2d(in_channels=self.c, out_channels=64, kernel_size=8, stride=4),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+            nn.Flatten()
+        )
     
-    def stopped(self, info):
-        x_pos = info["x_pos"]
-
-        if x_pos == self.last_x_pos:
-            self.last_x_pos_cnt += 1
-        else:
-            self.last_x_pos = x_pos
-            self.last_x_pos_cnt = 1
-        
-        return self.last_x_pos_cnt > self.xstopper
-
-    def reset(self, xstopper=None):
-        self.last_x_pos = -1
-        self.last_x_pos_cnt = 0
-        if xstopper:
-            self.xstopper = xstopper
+    def create_3d_net(self):
+        return nn.Sequential(
+            nn.Conv3d(in_channels=self.c, out_channels=32, kernel_size=(2, 8, 8), stride=(1, 4, 4)),
+            nn.BatchNorm3d(32),
+            nn.ReLU(),
+            nn.Conv3d(in_channels=32, out_channels=64, kernel_size=(2, 4, 4), stride=(1, 2, 2)),
+            nn.BatchNorm3d(64),
+            nn.ReLU(),
+            nn.Conv3d(in_channels=64, out_channels=64, kernel_size=(2, 3, 3), stride=(1, 1, 1)),
+            nn.BatchNorm3d(64),
+            nn.ReLU(),
+            nn.Flatten()
+        )
 
 class Mario:
-    def __init__(self, state_dim, action_dim, save_dir, train=False):
+    def __init__(self, state_dim, action_dim, options):
         self.state_dim = state_dim
         self.action_dim = action_dim
-        self.save_dir = save_dir
+        self.options = options
+        self.save_dir = options.savedir
+        self.train = (options.action == "train")
 
+        # prepare nets
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.qnet = MarioNet(self.state_dim, self.action_dim)
-        self.qnet = self.qnet.to(self.device)
-
-        # training settings
-        self.train = train
-        self.exploration_rate = 0.3
-        self.exploration_rate_decay = 0.9999997
-        self.exploration_rate_min = 0.1
+        self.policy_net = MarioNet(self.state_dim, self.action_dim, options=options)
+        self.policy_net = self.policy_net.to(self.device)
+        self.exploration_rate = options.explore
         self.curr_step = 0
-        self.burnin = 10000
-        self.learn_every = 1
-        self.sync_every = 10000
+        self.gamma = 0.99
 
-        self.memory = deque(maxlen=30000)
-        self.batch_size = 32
-        self.gamma = 0.95
-        self.optimizer = torch.optim.Adam(self.qnet.parameters(), lr=1e-3)
-        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[100000, 500000], gamma=0.25)
-        self.lossfn = torch.nn.MSELoss()
+        if self.train:
+            # training settings
+            self.policy_net.train()
+            self.target_net = self.policy_net.get_target_net()
+            self.target_net.eval()
+            self.exploration_rate_decay = 0.999999
+            self.exploration_rate_min = 0.1
+            self.burnin = 10000
+            self.learn_every = 1
+            self.sync_every = 10000
 
-        self.save_every = 1e5
+            self.memory = deque(maxlen=options.replaysize)
+            self.batch_size = options.batchsize
+            self.optimizer = torch.optim.Adam(self.policy_net.parameters(), options.lr)
+            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[250000, 500000, 1000000], gamma=0.25)
+            self.lossfn = torch.nn.MSELoss()
+
+            self.save_every = 1e5
+        else:
+            self.policy_net.eval()
     
     def state(self, obs):
         state = torch.tensor(np.array(obs), device=self.device)
-        # state = state.permute(1, 0, 2, 3)  # (d, c, h, w) => (c, d, h, w)
+        if self.options.fullcolor:
+            state = state.permute(1, 0, 2, 3)  # (d, c, h, w) => (c, d, h, w) for 3D CNN
         return state
 
     @torch.no_grad()
     def choose_action(self, state):
         "given a state, choose an epislon greedy action"
-        if np.random.rand() < self.exploration_rate and self.train:
+        if np.random.rand() < self.exploration_rate:
             action_idx = np.random.randint(self.action_dim)
         else:
-            self.qnet.policy.eval()
+            self.policy_net.eval()
             state = state.unsqueeze(0)
-            action_values = self.qnet(state, model="policy")
-            self.qnet.policy.train()
+            action_values = self.policy_net(state)
+            self.policy_net.train()
             action_idx = torch.argmax(action_values[0]).item()
         
-        if self.curr_step >= self.burnin:
+        if self.train and self.curr_step >= self.burnin:
             self.exploration_rate *= self.exploration_rate_decay
             self.exploration_rate = max(self.exploration_rate, self.exploration_rate_min)
 
         self.curr_step += 1
-
         return action_idx
 
     def cache(self, experience):
@@ -216,17 +245,17 @@ class Mario:
         return td_est.mean().item(), loss
 
     def td_estimate(self, states, actions):
-        current_qs = self.qnet(states, model="policy")
+        current_qs = self.policy_net(states)
         current_q = torch.gather(current_qs, dim=1, index=actions).squeeze(1)
         return current_q
     
     @torch.no_grad()
     def td_target(self, rewards, next_states, dones):
-        self.qnet.policy.eval()
-        next_states_q = self.qnet(next_states, model="policy")  # using policy net choose best action
-        self.qnet.policy.train()
+        self.policy_net.eval()
+        next_states_q = self.policy_net(next_states)  # using policy net choose best action
+        self.policy_net.train()
         best_actions = torch.argmax(next_states_q, axis=1)
-        next_qs = self.qnet(next_states, model="target")  # using target net estimate next state q
+        next_qs = self.target_net(next_states)  # using target net estimate next state q
         next_q = torch.gather(next_qs, dim=1, index=best_actions.unsqueeze(1)).squeeze(1)
         target = rewards.squeeze(1) + self.gamma * (1 - dones.squeeze(1)) * next_q
         return target
@@ -240,17 +269,21 @@ class Mario:
         return loss.item()
     
     def sync_target_net(self):
-        self.qnet.target.load_state_dict(self.qnet.policy.state_dict())
-        self.qnet.target.eval()
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
     
     def save(self):
-        save_path = os.path.join(self.save_dir, f"mario_net_{self.curr_step}.chkpt")
-        torch.save(self.qnet, save_path)
+        policy_path = os.path.join(self.save_dir, f"mario_{self.curr_step}.chkpt")
+        torch.save(self.policy_net, policy_path)
     
     def load(self, path):
-        self.qnet = torch.load(path)
+        self.policy_net = torch.load(path)
+        if self.train:
+            self.target_net = self.policy_net.get_target_net()
 
-def create_mario_game(train=True):
+def create_mario_game(options):
+    train = options.action == "train"
+
     if train:
         render_mode = "rgb"
     else:
@@ -259,17 +292,15 @@ def create_mario_game(train=True):
     env = gym_super_mario_bros.make("SuperMarioBros-1-1-v0", render_mode=render_mode, apply_api_compatibility=True)
     env = JoypadSpace(env, ACTIONS)
     env = SkipFrame(env, interval=4)
-    env = ObsTensor(env, shape=(OB_H, OB_W))
+    env = ObsTensor(env, shape=(OB_H, OB_W), options=options)
     env = FrameStack(env, num_stack=4)
 
     return env
 
 def test(env, mario, options):
-    #stopper = MarioStopper(50)
     for episode in range(options.episodes):
         obs, _ = env.reset()
         si = mario.state(obs)
-        #stopper.reset(100)
         done = False
         episode_reward = 0.0
         steps = 0
@@ -282,22 +313,15 @@ def test(env, mario, options):
             episode_reward += reward
             steps += 1
             time.sleep(0.05)
-            #if stopper.stopped(info):
-            #    break
 
         print(f"episode: {episode}, steps: {steps}, reward: {episode_reward}")
 
 def train(env, mario, options):
-    #stopper = MarioStopper(50)
     episode_rewards = []
     episode_steps = []
     for episode in range(options.episodes):
         obs, info = env.reset()
         si = mario.state(obs)
-        #if episode > 5000:
-        #    stopper.reset(1000)
-        #else:
-        #    stopper.reset(50)
         done = False
 
         qs = []
@@ -317,8 +341,6 @@ def train(env, mario, options):
             if loss: losses.append(loss)
             episode_rewards[-1] += reward
             episode_steps[-1] += 1
-            #if stopper.stopped(info):
-            #    break
 
         rmean = np.mean(episode_rewards[-10:]) if len(episode_rewards) >= 10 else -1.0
         smean = np.mean(episode_steps[-10:]) if len(episode_steps) >= 10 else -1.0
@@ -338,22 +360,29 @@ if __name__ == "__main__":
     parser.add_argument("--max_episode_length", type=int, default=1000)
     parser.add_argument("--action", type=str, default="test")
     parser.add_argument("--modelfile", type=str, default="")
-
+    parser.add_argument("--savedir", type=str, default="mario")
+    parser.add_argument("--explore", type=float, default=0.05)
+    parser.add_argument("--replaysize", type=int, default=10000)
+    parser.add_argument("--fullcolor", action="store_true", default=False)
+    parser.add_argument("--batchsize", type=int, default=32)
     options = parser.parse_args(sys.argv[1:])
+
+    if options.fullcolor:
+        state_dim=(3, 4, OB_H, OB_W)
+    else:
+        state_dim=(4, OB_H, OB_W)
+
+    env = create_mario_game(options)
+    mario = Mario(state_dim=state_dim, action_dim=len(ACTIONS), options=options)
+    summary(mario.policy_net, state_dim, device=mario.device)
+
+    if options.modelfile:
+        mario.load(options.modelfile)
+
     if options.action == "train":
-        env = create_mario_game(train=True)
-        mario = Mario(state_dim=(4,OB_H,OB_W), action_dim=len(ACTIONS), save_dir="mario", train=True)
-        if options.modelfile:
-            mario.load(options.modelfile)
-        summary(mario.qnet, (4,OB_H,OB_W), device=mario.device)
         train(env, mario, options)
     elif options.action == "test":
-        env = create_mario_game(train=False)
-        mario = Mario(state_dim=(4,OB_H,OB_W), action_dim=len(ACTIONS), save_dir="mario", train=False)
-        if options.modelfile:
-            mario.load(options.modelfile)
         test(env, mario, options)
     else:
         print(f"unknown option action={options.action}")
         sys.exit(1)
-
