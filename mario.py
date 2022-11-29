@@ -74,7 +74,7 @@ class MarioNet(nn.Module):
         super().__init__()
         self.c = input_dim[0]
         self.output_dim = output_dim
-        self.backbone_dim = 4608 #18496
+        self.backbone_dim = 18496
 
         if options.fullcolor:
             self.backbone = self.create_3d_net()
@@ -85,16 +85,10 @@ class MarioNet(nn.Module):
             nn.Linear(self.backbone_dim, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.BatchNorm1d(256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
+            nn.Linear(512, 1)
         )
         self.anet = nn.Sequential(
-            nn.Linear(self.backbone_dim, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(),
-            nn.Linear(1024, 512),
+            nn.Linear(self.backbone_dim, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Linear(512, self.output_dim)
@@ -116,20 +110,15 @@ class MarioNet(nn.Module):
     
     def create_grayscale_net(self):
         return nn.Sequential(
-            nn.Conv2d(in_channels=self.c, out_channels=64, kernel_size=8, stride=4),
+            nn.Conv2d(in_channels=self.c, out_channels=32, kernel_size=8, stride=4),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=4, stride=2),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2),
             nn.Flatten()
         )
     
@@ -161,7 +150,7 @@ class Mario:
         self.policy_net = self.policy_net.to(self.device)
         self.exploration_rate = options.explore
         self.curr_step = 0
-        self.gamma = 0.99
+        self.gamma = 0.9
 
         if self.train:
             # training settings
@@ -170,7 +159,7 @@ class Mario:
             self.target_net.eval()
             self.exploration_rate_decay = 0.999999
             self.exploration_rate_min = 0.1
-            self.burnin = 10000
+            self.burnin = 5000
             self.learn_every = 1
             self.sync_every = 10000
 
@@ -178,7 +167,7 @@ class Mario:
             self.batch_size = options.batchsize
             self.optimizer = torch.optim.Adam(self.policy_net.parameters(), options.lr)
             self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[250000, 500000, 1000000], gamma=0.25)
-            self.lossfn = torch.nn.MSELoss()
+            self.lossfn = torch.nn.SmoothL1Loss()
 
             self.save_every = 1e5
         else:
@@ -272,8 +261,11 @@ class Mario:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
     
-    def save(self):
-        policy_path = os.path.join(self.save_dir, f"mario_{self.curr_step}.chkpt")
+    def save(self, best=False):
+        if best:
+            policy_path = os.path.join(self.save_dir, f"mario_best.chkpt")
+        else:
+            policy_path = os.path.join(self.save_dir, f"mario_{self.curr_step}.chkpt")
         torch.save(self.policy_net, policy_path)
     
     def load(self, path):
@@ -317,6 +309,7 @@ def test(env, mario, options):
         print(f"episode: {episode}, steps: {steps}, reward: {episode_reward}")
 
 def train(env, mario, options):
+    best_rewards = -1.0
     episode_rewards = []
     episode_steps = []
     for episode in range(options.episodes):
@@ -346,6 +339,11 @@ def train(env, mario, options):
         smean = np.mean(episode_steps[-10:]) if len(episode_steps) >= 10 else -1.0
         qmean = np.mean(qs[-10:]) if len(qs) >= 10 else -1.0
         lossmean = np.mean(losses[-10:]) if len(losses) >= 10 else -1.0
+
+        if rmean > best_rewards:
+            best_rewards = rmean
+            mario.save(best=True)
+
         lr = mario.lr_scheduler.get_last_lr()[0]
         explore = mario.exploration_rate
         print(f"episode: {episode}[{mario.curr_step}], steps: {smean:.0f}, reward: {rmean:.0f}, q: {qmean:.2f}, loss: {lossmean:.2f}, explore: {explore:.2f}, lr: {lr}")
@@ -364,7 +362,6 @@ if __name__ == "__main__":
     parser.add_argument("--explore", type=float, default=0.05)
     parser.add_argument("--replaysize", type=int, default=10000)
     parser.add_argument("--fullcolor", action="store_true", default=False)
-    parser.add_argument("--batchsize", type=int, default=32)
     options = parser.parse_args(sys.argv[1:])
 
     if options.fullcolor:
